@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Technical Evaluation – C / C++ / Python / Java</title>
+<link rel="stylesheet" href="css/style.css">
+<script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
+</head>
+<body>
+<header class="topbar">
+  <div class="brand">Technical Evaluation</div>
+  <div class="timer" title="Time remaining"></div>
+</header>
+
+<main>
+  <!-- Landing: list of papers (organizer) -->
+  <section id="screen-landing" class="screen" hidden>
+    <h1>Online Technical Evaluation</h1>
+    <p class="muted">Send a candidate one of the links below. Each paper has 15 multiple-choice questions (30 marks) and 4 programming questions (20 marks) in the paper's language. Total 50 marks, pass mark 80%.</p>
+    <div id="paper-list" class="card"></div>
+    <p class="small muted">Organizer: open <code>?organizer=1</code> on the candidate's machine to view results stored there.</p>
+  </section>
+
+  <!-- Start: candidate details -->
+  <section id="screen-start" class="screen" hidden>
+    <div class="card narrow">
+      <h1 id="start-paper-label"></h1>
+      <p id="start-meta" class="muted"></p>
+      <ul class="rules">
+        <li>Part 1: choose one option per question. Part 2: write a complete program in the paper's language that reads standard input and prints to standard output.</li>
+        <li>The timer starts when you click <strong>Start test</strong>. The test is submitted automatically when time runs out.</li>
+        <li>Do not refresh or close the page during the test.</li>
+      </ul>
+      <form id="start-form">
+        <label>Full name <input id="cand-name" required autocomplete="name" placeholder="Your full name"></label>
+        <label>Email <input id="cand-email" type="email" autocomplete="email" placeholder="you@example.com"></label>
+        <button class="btn btn-primary" type="submit">Start test</button>
+      </form>
+    </div>
+  </section>
+
+  <!-- Part 1 -->
+  <section id="screen-mcq" class="screen" hidden>
+    <div class="section-head"><h2 id="mcq-title"></h2><span id="mcq-progress" class="pill"></span></div>
+    <div id="mcq-questions"></div>
+    <div class="actions"><button id="to-coding" class="btn btn-primary">Continue to Part 2: Programming →</button></div>
+  </section>
+
+  <!-- Part 2 -->
+  <section id="screen-code" class="screen" hidden>
+    <div class="section-head"><h2 id="code-title"></h2></div>
+    <p id="code-lang-note" class="notice"></p>
+    <div id="code-questions"></div>
+    <div class="actions"><button id="submit-test" class="btn btn-primary">Submit test</button></div>
+  </section>
+
+  <!-- Grading -->
+  <section id="screen-grading" class="screen" hidden>
+    <div class="card narrow"><h2>Evaluating your answers…</h2><p class="muted">Please wait – your code is being compiled and run. Do not close this page.</p><pre id="grading-log" class="log"></pre></div>
+  </section>
+
+  <!-- Done -->
+  <section id="screen-done" class="screen" hidden>
+    <div class="card narrow center">
+      <div class="check">✓</div>
+      <h2>Thank you, <span id="done-name"></span>!</h2>
+      <p id="done-email" class="muted"></p>
+      <p class="small muted">You may now close this window.</p>
+      <hr>
+      <button id="btn-organizer" class="btn btn-ghost">Organizer: view results</button>
+    </div>
+  </section>
+
+  <!-- Result (organizer) -->
+  <section id="screen-result" class="screen" hidden>
+    <div class="section-head"><h2>Evaluation Result</h2>
+      <div class="row-actions no-print"><button id="btn-download-pdf" class="btn btn-primary">Download PDF</button><button id="btn-resend" class="btn btn-secondary">Re-send email</button><button id="btn-print" class="btn btn-ghost">Print</button></div></div>
+    <div id="result-body"></div>
+  </section>
+
+  <!-- Organizer home -->
+  <section id="screen-organizer" class="screen" hidden>
+    <h1>Stored results on this device</h1>
+    <div id="stored-list" class="card"></div>
+    <p><a class="btn btn-ghost" href="?">← Back</a></p>
+  </section>
+</main>
+
+<script src="js/minipdf.js"></script>
+<script src="js/config.js"></script>
+<script src="js/questions.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
