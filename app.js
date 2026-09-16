@@ -73,9 +73,46 @@
     state.candidate.email = $("#cand-email").value.trim();
     if (!state.candidate.name) return;
     state.startedAt = Date.now();
-    renderMcq(); startTimer();
+    renderMcq(); startTimer(); startProctoring();
     window.onbeforeunload = () => "Your test is in progress. Leaving will lose your answers.";
   });
+
+  /* ------------------------------------------------ proctoring */
+  const proctor = { active: false, violations: [], warned: false, handlers: [] };
+  function startProctoring() {
+    const P = CONFIG.proctoring || {}; if (!P.enabled) return;
+    proctor.active = true;
+    const on = (target, ev, fn, opts) => { target.addEventListener(ev, fn, opts); proctor.handlers.push([target, ev, fn, opts]); };
+    if (P.fullscreen && document.documentElement.requestFullscreen) {
+      document.documentElement.requestFullscreen().catch(() => { });
+      on(document, "fullscreenchange", () => { if (proctor.active && !document.fullscreenElement) violation("Left fullscreen mode"); });
+    }
+    on(document, "visibilitychange", () => { if (document.hidden) violation("Switched to another tab or minimised the window"); });
+    on(window, "blur", () => { setTimeout(() => { if (proctor.active && !document.hasFocus() && !document.hidden) violation("Switched to another window or application"); }, 150); });
+    if (P.blockCopyPaste) {
+      ["copy", "cut", "paste"].forEach(ev => on(document, ev, e => { if (e.target.closest && e.target.closest("#screen-mcq, #screen-code")) { e.preventDefault(); flash(`${ev[0].toUpperCase() + ev.slice(1)} is disabled during the test.`); } }));
+      on(document, "contextmenu", e => { if (e.target.closest && e.target.closest("#screen-mcq, #screen-code")) e.preventDefault(); });
+    }
+  }
+  function stopProctoring() {
+    proctor.active = false;
+    proctor.handlers.forEach(([t, ev, fn, o]) => t.removeEventListener(ev, fn, o)); proctor.handlers = [];
+    if (document.fullscreenElement && document.exitFullscreen) document.exitFullscreen().catch(() => { });
+  }
+  function ask(msg) { proctor.mutedUntil = Date.now() + 1500; const r = confirm(msg); proctor.mutedUntil = Date.now() + 1500; return r; }
+  function violation(reason) {
+    if (!proctor.active || proctor.warned || Date.now() < (proctor.mutedUntil || 0)) return;
+    const P = CONFIG.proctoring;
+    proctor.violations.push({ at: new Date().toISOString(), reason });
+    const n = proctor.violations.length;
+    if (n >= P.maxViolations) { proctor.active = false; collectCode(); alert(`You left the test ${n} times. The test is now being submitted automatically.`); submitTest(false, "auto-submitted after " + n + " focus violations"); return; }
+    proctor.warned = true;
+    showOverlay(`<h2>Warning ${n} of ${P.maxViolations - 1}</h2><p>${esc(reason)}.</p><p>Leaving the test page is not allowed. After <strong>${P.maxViolations}</strong> violations the test will be submitted automatically.</p><button class="btn btn-primary" id="overlay-ok">Return to test</button>`);
+    $("#overlay-ok").onclick = () => { hideOverlay(); proctor.warned = false; if (P.fullscreen && !document.fullscreenElement && document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(() => { }); };
+  }
+  function showOverlay(html) { let o = $("#proctor-overlay"); if (!o) { o = document.createElement("div"); o.id = "proctor-overlay"; document.body.appendChild(o); } o.innerHTML = `<div class="card narrow center">${html}</div>`; o.hidden = false; }
+  function hideOverlay() { const o = $("#proctor-overlay"); if (o) o.hidden = true; }
+  function flash(msg) { let f = $("#flash"); if (!f) { f = document.createElement("div"); f.id = "flash"; document.body.appendChild(f); } f.textContent = msg; f.hidden = false; clearTimeout(f._t); f._t = setTimeout(() => f.hidden = true, 2000); }
 
   /* ------------------------------------------------ timer */
   function startTimer() {
@@ -107,7 +144,7 @@
 
   $("#to-coding").addEventListener("click", () => {
     const left = state.mcqs.length - Object.keys(state.answers).length;
-    if (left > 0 && !confirm(`${left} question(s) are unanswered. Continue to the programming section anyway? You cannot come back to Part 1.`)) return;
+    if (left > 0 && !ask(`${left} question(s) are unanswered. Continue to the programming section anyway? You cannot come back to Part 1.`)) return;
     renderCoding();
   });
 
@@ -139,20 +176,22 @@
   $("#submit-test").addEventListener("click", () => {
     collectCode();
     const blank = state.coding.filter((_, i) => !(state.code[i] || "").trim()).length;
-    if (!confirm(`Submit the test now?${blank ? ` (${blank} programming question(s) are blank.)` : ""} This cannot be undone.`)) return;
+    if (!ask(`Submit the test now?${blank ? ` (${blank} programming question(s) are blank.)` : ""} This cannot be undone.`)) return;
     submitTest(false);
   });
 
   /* ------------------------------------------------ Grading */
-  async function submitTest(auto) {
-    clearInterval(state.timerId); window.onbeforeunload = null;
+  async function submitTest(auto, reason) {
+    if (state.submitting) return; state.submitting = true;
+    clearInterval(state.timerId); window.onbeforeunload = null; stopProctoring(); hideOverlay();
     document.querySelectorAll(".timer").forEach(el => el.textContent = "");
     show("#screen-grading");
     const log = (msg) => { $("#grading-log").textContent += msg + "\n"; };
-    log(auto ? "Time is up – submitting automatically." : "Submitting…");
+    log(auto ? "Time is up – submitting automatically." : reason ? "Submitting (" + reason + ")…" : "Submitting…");
 
     const result = { candidate: state.candidate, paperId: state.paperId, paper: state.paper.label, lang: LANG_META[state.lang].name,
-      startedAt: new Date(state.startedAt).toISOString(), submittedAt: new Date().toISOString(), mcq: [], coding: [] };
+      startedAt: new Date(state.startedAt).toISOString(), submittedAt: new Date().toISOString(), mcq: [], coding: [],
+      submitReason: auto ? "time expired" : (reason || "submitted by candidate"), violations: proctor.violations.slice() };
 
     // MCQ
     state.mcqs.forEach((m, i) => {
@@ -270,7 +309,7 @@
     const kw = q.rubric.filter(k => code.includes(k)).length;
     if (kw >= Math.min(2, q.rubric.length)) { score++; notes.push("expected constructs present"); }
     const lit = q.tests.map(t => t.output.split("\n")[0].trim()).filter(x => /[A-Za-z]/.test(x));
-    if (lit.length === 0 || lit.some(l => code.includes(l))) { score++; notes.push("expected output literals present"); }
+    if (lit.length > 0 && lit.some(l => code.includes(l))) { score++; notes.push("expected output literals present"); }
     if (code.split("\n").filter(l => l.trim()).length >= 8 && /(for|while)/.test(code)) { score++; notes.push("complete program with loops"); }
     return { marks: Math.min(5, score), note: notes.join(", ") || "attempted" };
   }
@@ -291,7 +330,12 @@
     text(`Multiple choice: ${r.mcqTotal} / ${CONFIG.mcqCount * CONFIG.marks.mcq}`, 11);
     text(`Programming:     ${r.codingTotal} / ${CONFIG.codingCount * CONFIG.marks.coding}`, 11);
     text(`TOTAL:           ${r.total} / ${r.maxTotal}   =   ${r.percentage}%`, 12, "bold");
-    text(`Result: ${r.pass ? "PASS" : "FAIL"}  (pass mark ${CONFIG.passPercentage}%)`, 12, "bold", r.pass ? GREEN : RED); doc.gap(10);
+    text(`Result: ${r.pass ? "PASS" : "FAIL"}  (pass mark ${CONFIG.passPercentage}%)`, 12, "bold", r.pass ? GREEN : RED);
+    text(`Submission: ${r.submitReason || "submitted by candidate"}`, 10, "normal", GREY);
+    const V = r.violations || [];
+    text(`Focus violations (tab/window switching): ${V.length}`, 10, V.length ? "bold" : "normal", V.length ? RED : GREY);
+    V.forEach(v => text(`  - ${new Date(v.at).toLocaleTimeString()}  ${v.reason}`, 9, "normal", GREY));
+    doc.gap(10);
 
     text(`PART 1 - MULTIPLE CHOICE (${CONFIG.marks.mcq} marks each)`, 13, "bold"); doc.gap(2);
     r.mcq.forEach(m => {
@@ -329,7 +373,8 @@
         to_email: CONFIG.organizerEmail, candidate_name: r.candidate.name, candidate_email: r.candidate.email || "-",
         paper: r.paper, language: r.lang, submitted_at: new Date(r.submittedAt).toLocaleString(),
         mcq_total: `${r.mcqTotal}/${CONFIG.mcqCount * CONFIG.marks.mcq}`, coding_total: `${r.codingTotal}/${CONFIG.codingCount * CONFIG.marks.coding}`,
-        total: `${r.total}/${r.maxTotal}`, percentage: r.percentage + "%", status: r.pass ? "PASS" : "FAIL", breakdown: rows,
+        total: `${r.total}/${r.maxTotal}`, percentage: r.percentage + "%", status: r.pass ? "PASS" : "FAIL",
+        breakdown: rows + `\n\nSubmission: ${r.submitReason || ""}\nFocus violations: ${(r.violations || []).length}`,
         pdf_name: state.pdfName
       };
       if (E.attachPdf && state.pdfBase64) params.pdf_base64 = "data:application/pdf;base64," + state.pdfBase64;
@@ -352,7 +397,7 @@
     w.innerHTML = `
       <div class="summary ${r.pass ? "pass" : "fail"}">
         <div><div class="big">${r.total} <span class="muted">/ ${r.maxTotal}</span></div><div>${r.percentage}% · <strong>${r.pass ? "PASS" : "FAIL"}</strong> (pass mark ${CONFIG.passPercentage}%)</div></div>
-        <div class="small"><div><strong>${esc(r.candidate.name)}</strong> ${esc(r.candidate.email || "")}</div><div>${esc(r.paper)} · ${esc(r.lang)}</div><div>Submitted ${new Date(r.submittedAt).toLocaleString()}</div><div>MCQ ${r.mcqTotal}/${CONFIG.mcqCount * CONFIG.marks.mcq} · Programming ${r.codingTotal}/${CONFIG.codingCount * CONFIG.marks.coding}</div><div>Email: ${esc(r.emailStatus || "")}</div></div>
+        <div class="small"><div><strong>${esc(r.candidate.name)}</strong> ${esc(r.candidate.email || "")}</div><div>${esc(r.paper)} · ${esc(r.lang)}</div><div>Submitted ${new Date(r.submittedAt).toLocaleString()}</div><div>MCQ ${r.mcqTotal}/${CONFIG.mcqCount * CONFIG.marks.mcq} · Programming ${r.codingTotal}/${CONFIG.codingCount * CONFIG.marks.coding}</div><div>Email: ${esc(r.emailStatus || "")}</div><div>Submission: ${esc(r.submitReason || "")}</div><div class="${(r.violations||[]).length ? "viol" : ""}">Focus violations: ${(r.violations||[]).length}${(r.violations||[]).length ? " – " + r.violations.map(v => new Date(v.at).toLocaleTimeString() + " " + v.reason).join("; ") : ""}</div></div>
       </div>
       <h3>Part 1 – Multiple choice</h3>
       <table class="res-table"><thead><tr><th>#</th><th>Question</th><th>Candidate's answer</th><th>Correct answer</th><th>Marks</th></tr></thead><tbody>
