@@ -29,10 +29,10 @@ const CONFIG = {
   // 3. Account -> API keys -> copy Public Key
   emailjs: {
     enabled: true,
-    publicKey:  "YOUR_EMAILJS_PUBLIC_KEY",
-    serviceId:  "YOUR_EMAILJS_SERVICE_ID",
-    templateId: "YOUR_EMAILJS_TEMPLATE_ID",
-    attachPdf:  true            // set false if your EmailJS plan does not allow attachments
+    publicKey:  "2P-n5WgpeOAt3jGCw",
+    serviceId:  "service_geq1mcj",
+    templateId: "template_z52kde5",
+    attachPdf:  false           // EmailJS free plan does not support attachments; the full breakdown is in the email body
   },
 
   // Code execution service (free, public). Leave as is.
