@@ -12,6 +12,14 @@ const CONFIG = {
   passPercentage: 80,          // pass mark in %
   timeLimitMinutes: 60,        // total time per test (MCQ + coding)
 
+  // ---- Proctoring: detect tab/window switching during the test ----
+  proctoring: {
+    enabled: true,
+    maxViolations: 3,       // auto-submit when the candidate leaves the test this many times
+    fullscreen: true,       // run the test in fullscreen; leaving fullscreen counts as a violation
+    blockCopyPaste: true    // disable copy / cut / paste / right-click during the test
+  },
+
   marks: { mcq: 2, coding: 5 }, // per question
   mcqCount: 15, codingCount: 4, // 15 x 2 = 30, 4 x 5 = 20 -> total 50
 
