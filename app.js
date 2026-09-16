@@ -123,7 +123,7 @@
         <pre class="q-text">${esc(c.text)}</pre>
         <div class="sample"><div><strong>Sample input</strong><pre>${esc(c.sample.input)}</pre></div><div><strong>Expected output</strong><pre>${esc(c.sample.output)}</pre></div></div>
         <label class="code-label">Your ${esc(L.name)} code (.${L.ext})</label>
-        <textarea class="code-editor" data-idx="${i}" spellcheck="false" placeholder="${esc(starter(state.lang))}"></textarea>`;
+        <textarea class="code-editor" data-idx="${i}" spellcheck="false"></textarea>`;
       wrap.appendChild(card);
     });
     wrap.querySelectorAll(".code-editor").forEach(t => t.addEventListener("keydown", e => {
