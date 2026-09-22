@@ -178,7 +178,7 @@
   $("#submit-test").addEventListener("click", () => {
     collectCode();
     const blank = state.coding.filter((_, i) => !(state.code[i] || "").trim()).length;
-    if (!ask(`Submit the test now?${blank ? ` (${blank} programming questin(s) are blank.)` : ""} This cannot be undone.`)) return;
+    if (!ask(`Submit the test now?${blank ? ` (${blank} programming question(s) are blank.)` : ""} This cannot be undone.`)) return;
     submitTest(false);
   });
 
