@@ -31,7 +31,7 @@ const CONFIG = {
     enabled: true,
     publicKey:  "2P-n5WgpeOAt3jGCw",
     serviceId:  "service_geq1mcj",
-    templateId: "template_z52kde5",
+    templateId: "template_uezb0nf",
     attachPdf:  false           // EmailJS free plan does not support attachments; the full breakdown is in the email body
   },
 
