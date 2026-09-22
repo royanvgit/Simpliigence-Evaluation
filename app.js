@@ -65,12 +65,14 @@
   }
 
   const totalMarks = () => CONFIG.mcqCount * CONFIG.marks.mcq + CONFIG.codingCount * CONFIG.marks.coding;
+  const fmtDur = (ms) => { const t = Math.max(0, Math.round(ms / 1000)); const m = Math.floor(t / 60), sec = t % 60; return `${m} min ${sec.toString().padStart(2, "0")} sec`; };
 
   /* ------------------------------------------------ start */
   $("#start-form").addEventListener("submit", e => {
     e.preventDefault();
     state.candidate.name = $("#cand-name").value.trim();
     state.candidate.email = $("#cand-email").value.trim();
+    state.candidate.batch = ($("#cand-batch") ? $("#cand-batch").value.trim() : "");
     if (!state.candidate.name) return;
     state.startedAt = Date.now();
     renderMcq(); startTimer(); startProctoring();
@@ -176,7 +178,7 @@
   $("#submit-test").addEventListener("click", () => {
     collectCode();
     const blank = state.coding.filter((_, i) => !(state.code[i] || "").trim()).length;
-    if (!ask(`Submit the test now?${blank ? ` (${blank} programming question(s) are blank.)` : ""} This cannot be undone.`)) return;
+    if (!ask(`Submit the test now?${blank ? ` (${blank} programming questin(s) are blank.)` : ""} This cannot be undone.`)) return;
     submitTest(false);
   });
 
@@ -191,6 +193,7 @@
 
     const result = { candidate: state.candidate, paperId: state.paperId, paper: state.paper.label, lang: LANG_META[state.lang].name,
       startedAt: new Date(state.startedAt).toISOString(), submittedAt: new Date().toISOString(), mcq: [], coding: [],
+      timeTakenMs: Date.now() - state.startedAt, timeTaken: fmtDur(Date.now() - state.startedAt), timeLimit: CONFIG.timeLimitMinutes + " min",
       submitReason: auto ? "time expired" : (reason || "submitted by candidate"), violations: proctor.violations.slice() };
 
     // MCQ
@@ -323,8 +326,11 @@
 
     text(`${CONFIG.organizerName} - Technical Evaluation Result`, 18, "bold"); doc.gap(4);
     text(`Candidate: ${r.candidate.name}   ${r.candidate.email ? "(" + r.candidate.email + ")" : ""}`, 11);
+    text(`Batch / Class: ${r.candidate.batch || "-"}`, 11);
     text(`Paper: ${r.paper}   Language: ${r.lang}`, 11);
-    text(`Submitted: ${new Date(r.submittedAt).toLocaleString()}`, 11); doc.gap(4);
+    text(`Started: ${new Date(r.startedAt).toLocaleString()}`, 11);
+    text(`Submitted: ${new Date(r.submittedAt).toLocaleString()}`, 11);
+    text(`Time used: ${r.timeTaken || "-"}  (limit ${r.timeLimit || "-"})`, 11); doc.gap(4);
     doc.rule();
     text("SUMMARY", 13, "bold");
     text(`Multiple choice: ${r.mcqTotal} / ${CONFIG.mcqCount * CONFIG.marks.mcq}`, 11);
@@ -369,8 +375,31 @@
       emailjs.init({ publicKey: E.publicKey });
       const rows = r.mcq.map(m => `Q${m.n}: ${m.marks}/${m.max}  (chosen: ${m.chosen || "-"} | correct: ${m.correct})`).join("\n") + "\n" +
         r.coding.map(c => `P${c.n} ${c.title}: ${c.marks}/${c.max}  (${c.note})`).join("\n");
+      const summary = [
+        `Candidate: ${r.candidate.name}`,
+        `Email: ${r.candidate.email || "-"}`,
+        `Batch / Class: ${r.candidate.batch || "-"}`,
+        `Paper: ${r.paper}    Language: ${r.lang}`,
+        `Started: ${new Date(r.startedAt).toLocaleString()}`,
+        `Submitted: ${new Date(r.submittedAt).toLocaleString()}`,
+        `Time used: ${r.timeTaken} (limit ${r.timeLimit})`,
+        "",
+        `Multiple choice: ${r.mcqTotal}/${CONFIG.mcqCount * CONFIG.marks.mcq}`,
+        `Programming:     ${r.codingTotal}/${CONFIG.codingCount * CONFIG.marks.coding}`,
+        `TOTAL SCORE:     ${r.total}/${r.maxTotal}  =  ${r.percentage}%`,
+        `RESULT: ${r.pass ? "PASS" : "FAIL"}  (pass mark ${CONFIG.passPercentage}%)`,
+        "",
+        `Submission: ${r.submitReason || ""}`,
+        `Focus violations: ${(r.violations || []).length}`,
+        "",
+        "Per-question breakdown:"
+      ].join("\n");
       const params = {
         to_email: CONFIG.organizerEmail, candidate_name: r.candidate.name, candidate_email: r.candidate.email || "-",
+        candidate_batch: r.candidate.batch || "-", batch: r.candidate.batch || "-",
+        time_taken: r.timeTaken, time_limit: r.timeLimit, started_at: new Date(r.startedAt).toLocaleString(),
+        score: `${r.total}/${r.maxTotal}`, name: r.candidate.name, email: r.candidate.email || "-",
+        message: summary + "\n" + rows,
         paper: r.paper, language: r.lang, submitted_at: new Date(r.submittedAt).toLocaleString(),
         mcq_total: `${r.mcqTotal}/${CONFIG.mcqCount * CONFIG.marks.mcq}`, coding_total: `${r.codingTotal}/${CONFIG.codingCount * CONFIG.marks.coding}`,
         total: `${r.total}/${r.maxTotal}`, percentage: r.percentage + "%", status: r.pass ? "PASS" : "FAIL",
@@ -397,7 +426,7 @@
     w.innerHTML = `
       <div class="summary ${r.pass ? "pass" : "fail"}">
         <div><div class="big">${r.total} <span class="muted">/ ${r.maxTotal}</span></div><div>${r.percentage}% · <strong>${r.pass ? "PASS" : "FAIL"}</strong> (pass mark ${CONFIG.passPercentage}%)</div></div>
-        <div class="small"><div><strong>${esc(r.candidate.name)}</strong> ${esc(r.candidate.email || "")}</div><div>${esc(r.paper)} · ${esc(r.lang)}</div><div>Submitted ${new Date(r.submittedAt).toLocaleString()}</div><div>MCQ ${r.mcqTotal}/${CONFIG.mcqCount * CONFIG.marks.mcq} · Programming ${r.codingTotal}/${CONFIG.codingCount * CONFIG.marks.coding}</div><div>Email: ${esc(r.emailStatus || "")}</div><div>Submission: ${esc(r.submitReason || "")}</div><div class="${(r.violations||[]).length ? "viol" : ""}">Focus violations: ${(r.violations||[]).length}${(r.violations||[]).length ? " – " + r.violations.map(v => new Date(v.at).toLocaleTimeString() + " " + v.reason).join("; ") : ""}</div></div>
+        <div class="small"><div><strong>${esc(r.candidate.name)}</strong> ${esc(r.candidate.email || "")}</div><div>Batch / Class: <strong>${esc(r.candidate.batch || "-")}</strong></div><div>${esc(r.paper)} · ${esc(r.lang)}</div><div>Submitted ${new Date(r.submittedAt).toLocaleString()}</div><div>Time used: ${esc(r.timeTaken || "-")} (limit ${esc(r.timeLimit || "-")})</div><div>MCQ ${r.mcqTotal}/${CONFIG.mcqCount * CONFIG.marks.mcq} · Programming ${r.codingTotal}/${CONFIG.codingCount * CONFIG.marks.coding}</div><div>Email: ${esc(r.emailStatus || "")}</div><div>Submission: ${esc(r.submitReason || "")}</div><div class="${(r.violations||[]).length ? "viol" : ""}">Focus violations: ${(r.violations||[]).length}${(r.violations||[]).length ? " – " + r.violations.map(v => new Date(v.at).toLocaleTimeString() + " " + v.reason).join("; ") : ""}</div></div>
       </div>
       <h3>Part 1 – Multiple choice</h3>
       <table class="res-table"><thead><tr><th>#</th><th>Question</th><th>Candidate's answer</th><th>Correct answer</th><th>Marks</th></tr></thead><tbody>
