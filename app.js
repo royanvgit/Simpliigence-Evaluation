@@ -21,18 +21,38 @@
   function mulberry32(a) { return function () { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
   function shuffled(arr, rnd) { const a = arr.slice(); for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(rnd() * (i + 1));[a[i], a[j]] = [a[j], a[i]]; } return a; }
 
+  function randomSeed() {
+    try { const a = new Uint32Array(1); crypto.getRandomValues(a); return a[0] || 1; } catch (e) { return (Date.now() ^ Math.floor(Math.random() * 4294967296)) >>> 0 || 1; }
+  }
+
+  // Draw a random MCQ set for THIS candidate: CONFIG.mcqMix questions from each
+  // level (easy/medium/hard), then shuffle question order and option order.
+  // If a level has too few questions, the shortfall is filled from the others.
+  function drawMcqs(bank, rnd) {
+    const mix = CONFIG.mcqMix || { easy: 0, medium: CONFIG.mcqCount, hard: 0 };
+    const byLevel = {};
+    bank.forEach((item, i) => { const l = item.level || "medium"; (byLevel[l] = byLevel[l] || []).push(i); });
+    Object.keys(byLevel).forEach(l => byLevel[l] = shuffled(byLevel[l], rnd));
+    let picked = [];
+    Object.entries(mix).forEach(([l, n]) => { picked = picked.concat((byLevel[l] || []).splice(0, n)); });
+    if (picked.length < CONFIG.mcqCount) {
+      const rest = shuffled([].concat(...Object.values(byLevel)), rnd);
+      picked = picked.concat(rest.slice(0, CONFIG.mcqCount - picked.length));
+    }
+    return shuffled(picked.slice(0, CONFIG.mcqCount), rnd);
+  }
+
   function buildPaper(paperId) {
     const paper = PAPERS[paperId]; if (!paper) return false;
     state.paperId = paperId; state.paper = paper; state.lang = paper.lang;
     const bank = MCQ_BANK[paper.lang];
-    const rnd = mulberry32(paper.seed || 1);
-    let order = bank.map((_, i) => i);
-    if (paper.shuffle) order = shuffled(order, rnd);
-    state.mcqs = order.slice(0, CONFIG.mcqCount).map(bi => {
+    state.drawSeed = CONFIG.randomMcqPerCandidate === false ? (paper.seed || 1) : randomSeed();
+    const rnd = mulberry32(state.drawSeed);
+    const order = drawMcqs(bank, rnd);
+    state.mcqs = order.map(bi => {
       const item = bank[bi];
-      let opts = item.options.map((text, origIndex) => ({ text, origIndex }));
-      if (paper.shuffle) opts = shuffled(opts, rnd);
-      return { bankIndex: bi, q: item.q, why: item.why, options: opts, answerPos: opts.findIndex(o => o.origIndex === item.answer) };
+      const opts = shuffled(item.options.map((text, origIndex) => ({ text, origIndex })), rnd);
+      return { bankIndex: bi, level: item.level || "medium", q: item.q, why: item.why, options: opts, answerPos: opts.findIndex(o => o.origIndex === item.answer) };
     });
     state.coding = paper.coding.slice(0, CONFIG.codingCount).map(key => Object.assign({ key }, CODING_POOL[key]));
     return true;
@@ -136,7 +156,7 @@
       const card = document.createElement("div"); card.className = "card q-card";
       card.innerHTML = `<div class="q-head"><span class="q-num">Q${i + 1}</span><span class="q-marks">${CONFIG.marks.mcq} marks</span></div>
         <pre class="q-text">${esc(m.q)}</pre>
-        <div class="options">${m.options.map((o, oi) => `<label class="opt"><input type="radio" name="mcq${i}" value="${oi}"><span class="opt-letter">${"ABCD"[oi]}</span><span>${esc(o.text)}</span></label>`).join("")}</div>`;
+        <div class="options">${m.options.map((o, oi) => `<label class="opt"><input type="radio" name="mcq${i}" value="${oi}"><span class="opt-letter">${"ABCD"[oi]}</span><span class="opt-text">${esc(o.text)}</span></label>`).join("")}</div>`;
       wrap.appendChild(card);
     });
     wrap.addEventListener("change", e => { if (e.target.type === "radio") { state.answers[+e.target.name.slice(3)] = +e.target.value; updateMcqProgress(); } });
@@ -194,12 +214,12 @@
     const result = { candidate: state.candidate, paperId: state.paperId, paper: state.paper.label, lang: LANG_META[state.lang].name,
       startedAt: new Date(state.startedAt).toISOString(), submittedAt: new Date().toISOString(), mcq: [], coding: [],
       timeTakenMs: Date.now() - state.startedAt, timeTaken: fmtDur(Date.now() - state.startedAt), timeLimit: CONFIG.timeLimitMinutes + " min",
-      submitReason: auto ? "time expired" : (reason || "submitted by candidate"), violations: proctor.violations.slice() };
+      submitReason: auto ? "time expired" : (reason || "submitted by candidate"), violations: proctor.violations.slice(), drawId: state.drawSeed };
 
     // MCQ
     state.mcqs.forEach((m, i) => {
       const chosen = state.answers[i]; const correct = chosen === m.answerPos;
-      result.mcq.push({ n: i + 1, q: m.q, chosen: chosen == null ? null : "ABCD"[chosen] + ". " + m.options[chosen].text, correct: "ABCD"[m.answerPos] + ". " + m.options[m.answerPos].text, marks: correct ? CONFIG.marks.mcq : 0, max: CONFIG.marks.mcq, why: m.why });
+      result.mcq.push({ n: i + 1, level: m.level, bankIndex: m.bankIndex, q: m.q, chosen: chosen == null ? null : "ABCD"[chosen] + ". " + m.options[chosen].text, correct: "ABCD"[m.answerPos] + ". " + m.options[m.answerPos].text, marks: correct ? CONFIG.marks.mcq : 0, max: CONFIG.marks.mcq, why: m.why });
     });
     log(`Part 1 evaluated: ${result.mcq.reduce((s, x) => s + x.marks, 0)} / ${CONFIG.mcqCount * CONFIG.marks.mcq}`);
 
@@ -255,30 +275,46 @@
     const fit = languageFit(code, lang);
     if (!fit.ok) return { marks: 1, passed: 0, total: q.tests.length, note: `Code appears to be ${fit.detected}, not ${LANG_META[lang].name} – minimum mark awarded`, method: "language-check" };
 
-    // 1) execute against hidden tests
-    let passed = 0, ran = 0, compileError = null;
+    // 1) execute against every hidden test. A runtime error / crash on one test
+    //    only fails THAT test; only a compile error stops the evaluation.
+    let passed = 0, ran = 0, compileError = null, runtimeErrors = 0, firstFail = null;
     for (const t of q.tests) {
       const r = await runCode(code, lang, t.input);
       if (r.unavailable) break;
       ran++;
       if (r.compileError) { compileError = r.compileError; break; }
-      if (outputsMatch(r.stdout, t.output, q.compare)) passed++;
+      const ok = !r.runtimeError && outputsMatch(r.stdout, t.output, q.compare);
+      if (ok) passed++;
+      else {
+        if (r.runtimeError) runtimeErrors++;
+        if (!firstFail) firstFail = { input: t.input, expected: t.output, got: r.runtimeError ? "(runtime error) " + r.runtimeError.split("\n").slice(-1)[0].slice(0, 160) : String(r.stdout || "").slice(0, 400) || "(no output)" };
+      }
       await new Promise(res => setTimeout(res, CONFIG.piston.delayMs));
     }
     if (compileError) {
       const rb = rubricScore(code, q, lang);
-      return { marks: Math.min(2, Math.max(1, rb.marks - 2)), passed: 0, total: q.tests.length, note: "Does not compile/run: " + compileError.split("\n")[0].slice(0, 120), method: "execution" };
+      return { marks: Math.min(2, Math.max(1, rb.marks - 2)), passed: 0, total: q.tests.length, note: "Does not compile: " + compileError.split("\n")[0].slice(0, 120), method: "execution" };
     }
     if (ran === q.tests.length) {
-      const ratio = passed / q.tests.length;
-      let marks = ratio === 1 ? 5 : Math.max(1, Math.round(ratio * 5));
-      if (marks === 5 && ratio < 1) marks = 4;
-      return { marks, passed, total: q.tests.length, note: `${passed} of ${q.tests.length} hidden test cases passed`, method: "execution" };
+      const marks = partialMarks(passed, q.tests.length);
+      return { marks, passed, total: q.tests.length, firstFail,
+        note: `${passed} of ${q.tests.length} hidden test cases passed${runtimeErrors ? ` (${runtimeErrors} crashed with a runtime error)` : ""}`, method: "execution" };
     }
     // 2) fallback rubric
     log("  (code-execution service unreachable – using rubric evaluation)");
     const rb = rubricScore(code, q, lang);
     return { marks: rb.marks, passed: null, total: q.tests.length, note: "Rubric evaluation (execution unavailable): " + rb.note, method: "rubric" };
+  }
+
+  // Marks in proportion to hidden tests passed (max = CONFIG.marks.coding):
+  // all pass = full marks; some pass = proportional, rounded, never full;
+  // compiles but none pass = 1 (attempt mark).
+  function partialMarks(passed, total) {
+    const max = CONFIG.marks.coding;
+    if (total === 0) return 0;
+    if (passed === total) return max;
+    if (passed === 0) return 1;
+    return Math.min(max - 1, Math.max(1, Math.round(passed / total * max)));
   }
 
   async function runCode(code, lang, stdin) {
@@ -292,7 +328,14 @@
       if (!res.ok) return { unavailable: true };
       const j = await res.json();
       if (j.compile && j.compile.code !== 0) return { compileError: j.compile.stderr || j.compile.output || "compile error" };
-      if (j.run && j.run.code !== 0 && !(j.run.stdout || "").trim()) return { compileError: (j.run.stderr || "runtime error").trim() };
+      if (j.run && (j.run.code !== 0 || j.run.signal)) {
+        // Java/Python report compile/syntax problems at run time: treat those as compile errors
+        const err = (j.run.stderr || "").trim();
+        if (/SyntaxError|IndentationError|TabError|error: (class|cannot find|';' expected|illegal)|Main\.java:\d+: error/.test(err) && !(j.run.stdout || "").trim()) return { compileError: err || "compile error" };
+        // otherwise a runtime crash: keep any output it printed, but mark the test as failed
+        if ((j.run.stdout || "").trim() && j.run.code !== 0 && !j.run.signal) return { stdout: j.run.stdout };
+        return { runtimeError: err || ("exited with " + (j.run.signal || "code " + j.run.code)), stdout: j.run.stdout || "" };
+      }
       return { stdout: j.run ? j.run.stdout : "" };
     } catch (e) { return { unavailable: true }; }
   }
@@ -327,7 +370,7 @@
     text(`${CONFIG.organizerName} - Technical Evaluation Result`, 18, "bold"); doc.gap(4);
     text(`Candidate: ${r.candidate.name}   ${r.candidate.email ? "(" + r.candidate.email + ")" : ""}`, 11);
     text(`Batch / Class: ${r.candidate.batch || "-"}`, 11);
-    text(`Paper: ${r.paper}   Language: ${r.lang}`, 11);
+    text(`Paper: ${r.paper}   Language: ${r.lang}   Question set ID: ${r.drawId || "-"}`, 11);
     text(`Started: ${new Date(r.startedAt).toLocaleString()}`, 11);
     text(`Submitted: ${new Date(r.submittedAt).toLocaleString()}`, 11);
     text(`Time used: ${r.timeTaken || "-"}  (limit ${r.timeLimit || "-"})`, 11); doc.gap(4);
@@ -346,7 +389,7 @@
     text(`PART 1 - MULTIPLE CHOICE (${CONFIG.marks.mcq} marks each)`, 13, "bold"); doc.gap(2);
     r.mcq.forEach(m => {
       doc.ensure(60);
-      text(`Q${m.n}. ${m.q.split("\n")[0]}`, 10, "bold");
+      text(`Q${m.n} [${m.level || "-"}]. ${m.q.split("\n")[0]}`, 10, "bold");
       if (m.q.includes("\n")) mono(m.q.split("\n").slice(1).join("\n"), 8);
       text(`Candidate's answer: ${m.chosen || "(not answered)"}`, 10, "normal", m.marks ? GREEN : RED);
       text(`Correct answer: ${m.correct}`, 10);
@@ -358,6 +401,7 @@
       text(`P${c.n}. ${c.title}`, 11, "bold");
       text(`Marks: ${c.marks} / ${c.max}   - ${c.note}`, 10, "normal", c.marks >= 4 ? GREEN : c.marks >= 2 ? AMBER : RED);
       text(`Correct approach: ${c.modelAnswer}`, 9, "italic", GREY);
+      if (c.firstFail) { text("First failing hidden test - input / expected / candidate output:", 9, "bold"); mono(`${c.firstFail.input}\n--- expected ---\n${c.firstFail.expected}\n--- got ---\n${c.firstFail.got}`, 8, 16); }
       text("Expected output for the sample input:", 9, "bold"); mono(c.expectedSample, 8, 12);
       text("Candidate's code:", 9, "bold"); mono(c.code.trim() || "(blank)", 8, 45); doc.gap(6);
     });
@@ -373,13 +417,13 @@
     if (!E.enabled || !window.emailjs || !E.publicKey || E.publicKey.startsWith("YOUR_")) return { ok: false, error: "EmailJS not configured (see js/config.js)" };
     try {
       emailjs.init({ publicKey: E.publicKey });
-      const rows = r.mcq.map(m => `Q${m.n}: ${m.marks}/${m.max}  (chosen: ${m.chosen || "-"} | correct: ${m.correct})`).join("\n") + "\n" +
+      const rows = r.mcq.map(m => `Q${m.n} [${m.level || "-"}]: ${m.marks}/${m.max}  (chosen: ${m.chosen || "-"} | correct: ${m.correct})`).join("\n") + "\n" +
         r.coding.map(c => `P${c.n} ${c.title}: ${c.marks}/${c.max}  (${c.note})`).join("\n");
       const summary = [
         `Candidate: ${r.candidate.name}`,
         `Email: ${r.candidate.email || "-"}`,
         `Batch / Class: ${r.candidate.batch || "-"}`,
-        `Paper: ${r.paper}    Language: ${r.lang}`,
+        `Paper: ${r.paper}    Language: ${r.lang}    Question set ID: ${r.drawId || "-"}`,
         `Started: ${new Date(r.startedAt).toLocaleString()}`,
         `Submitted: ${new Date(r.submittedAt).toLocaleString()}`,
         `Time used: ${r.timeTaken} (limit ${r.timeLimit})`,
@@ -431,15 +475,15 @@
     w.innerHTML = `
       <div class="summary ${r.pass ? "pass" : "fail"}">
         <div><div class="big">${r.total} <span class="muted">/ ${r.maxTotal}</span></div><div>${r.percentage}% · <strong>${r.pass ? "PASS" : "FAIL"}</strong> (pass mark ${CONFIG.passPercentage}%)</div></div>
-        <div class="small"><div><strong>${esc(r.candidate.name)}</strong> ${esc(r.candidate.email || "")}</div><div>Batch / Class: <strong>${esc(r.candidate.batch || "-")}</strong></div><div>${esc(r.paper)} · ${esc(r.lang)}</div><div>Submitted ${new Date(r.submittedAt).toLocaleString()}</div><div>Time used: ${esc(r.timeTaken || "-")} (limit ${esc(r.timeLimit || "-")})</div><div>MCQ ${r.mcqTotal}/${CONFIG.mcqCount * CONFIG.marks.mcq} · Programming ${r.codingTotal}/${CONFIG.codingCount * CONFIG.marks.coding}</div><div>Email: ${esc(r.emailStatus || "")}</div><div>Submission: ${esc(r.submitReason || "")}</div><div class="${(r.violations||[]).length ? "viol" : ""}">Focus violations: ${(r.violations||[]).length}${(r.violations||[]).length ? " – " + r.violations.map(v => new Date(v.at).toLocaleTimeString() + " " + v.reason).join("; ") : ""}</div></div>
+        <div class="small"><div><strong>${esc(r.candidate.name)}</strong> ${esc(r.candidate.email || "")}</div><div>Batch / Class: <strong>${esc(r.candidate.batch || "-")}</strong></div><div>${esc(r.paper)} · ${esc(r.lang)} · Set ID ${esc(r.drawId || "-")}</div><div>Submitted ${new Date(r.submittedAt).toLocaleString()}</div><div>Time used: ${esc(r.timeTaken || "-")} (limit ${esc(r.timeLimit || "-")})</div><div>MCQ ${r.mcqTotal}/${CONFIG.mcqCount * CONFIG.marks.mcq} · Programming ${r.codingTotal}/${CONFIG.codingCount * CONFIG.marks.coding}</div><div>Email: ${esc(r.emailStatus || "")}</div><div>Submission: ${esc(r.submitReason || "")}</div><div class="${(r.violations||[]).length ? "viol" : ""}">Focus violations: ${(r.violations||[]).length}${(r.violations||[]).length ? " – " + r.violations.map(v => new Date(v.at).toLocaleTimeString() + " " + v.reason).join("; ") : ""}</div></div>
       </div>
       <h3>Part 1 – Multiple choice</h3>
       <table class="res-table"><thead><tr><th>#</th><th>Question</th><th>Candidate's answer</th><th>Correct answer</th><th>Marks</th></tr></thead><tbody>
-      ${r.mcq.map(m => `<tr class="${m.marks ? "ok" : "bad"}"><td>Q${m.n}</td><td><pre>${esc(m.q)}</pre></td><td>${esc(m.chosen || "—")}</td><td>${esc(m.correct)}<div class="muted small">${esc(m.why)}</div></td><td>${m.marks}/${m.max}</td></tr>`).join("")}
+      ${r.mcq.map(m => `<tr class="${m.marks ? "ok" : "bad"}"><td>Q${m.n}<div class="muted small">${esc(m.level || "")}</div></td><td><pre>${esc(m.q)}</pre></td><td>${esc(m.chosen || "—")}</td><td>${esc(m.correct)}<div class="muted small">${esc(m.why)}</div></td><td>${m.marks}/${m.max}</td></tr>`).join("")}
       </tbody></table>
       <h3>Part 2 – Programming in ${esc(r.lang)}</h3>
       ${r.coding.map(c => `<div class="card res-code ${c.marks >= 4 ? "ok" : c.marks >= 2 ? "mid" : "bad"}"><div class="q-head"><strong>P${c.n}. ${esc(c.title)}</strong><span class="q-marks">${c.marks}/${c.max}</span></div>
-        <div class="small">${esc(c.note)}</div><div class="small muted"><strong>Correct approach:</strong> ${esc(c.modelAnswer)}</div>
+        <div class="small">${esc(c.note)}</div>${c.firstFail ? `<details><summary>First failing hidden test</summary><pre class="codeblock">Input:\n${esc(c.firstFail.input)}\n\nExpected:\n${esc(c.firstFail.expected)}\n\nCandidate output:\n${esc(c.firstFail.got)}</pre></details>` : ""}<div class="small muted"><strong>Correct approach:</strong> ${esc(c.modelAnswer)}</div>
         <details><summary>Candidate's code</summary><pre class="codeblock">${esc(c.code.trim() || "(blank)")}</pre></details>
         <details><summary>Expected output (sample)</summary><pre class="codeblock">${esc(c.expectedSample)}</pre></details></div>`).join("")}`;
   }

@@ -21,7 +21,15 @@ const CONFIG = {
   },
 
   marks: { mcq: 2, coding: 5 }, // per question
-  mcqCount: 15, codingCount: 4, // 15 x 2 = 30, 4 x 5 = 20 -> total 50
+  mcqCount: 25, codingCount: 4, // 25 x 2 = 50, 4 x 5 = 20 -> total 70
+
+  // ---- Random MCQ set per candidate ----
+  // Each candidate gets a different random set of MCQs drawn from the pool in
+  // questions.js, with this many questions from each difficulty level
+  // (should add up to mcqCount). Question order and options are shuffled too.
+  //   core = primary language concepts + data structures (10 questions)
+  randomMcqPerCandidate: true,
+  mcqMix: { core: 10, easy: 3, medium: 7, hard: 5 },
 
   // ---- EmailJS (https://www.emailjs.com – free plan: 200 emails/month) ----
   // 1. Create an account, add an Email Service (e.g. Gmail) -> copy its Service ID

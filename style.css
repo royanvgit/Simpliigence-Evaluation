@@ -30,7 +30,9 @@ label input { display:block; width:100%; margin-top:6px; padding:10px 12px; font
 .opt { display:flex; gap:10px; align-items:flex-start; padding:10px 12px; border:1px solid var(--line); border-radius:8px; cursor:pointer; font-weight:400; margin:0; }
 .opt:hover { border-color:var(--brand); background:#f7f9ff; }
 .opt:has(input:checked) { border-color:var(--brand); background:#eaf0ff; }
-.opt input { margin-top:3px; } .opt-letter { font-weight:700; color:var(--brand); min-width:16px; }
+.opt input[type=radio] { display:inline-block; width:18px; height:18px; flex:0 0 18px; margin:2px 0 0; padding:0; border:0; accent-color:var(--brand); }
+.opt-letter { font-weight:700; color:var(--brand); flex:0 0 18px; }
+.opt-text { flex:1 1 auto; text-align:left; white-space:pre-wrap; }
 .sample { display:grid; grid-template-columns:1fr 1fr; gap:12px; margin:8px 0 12px; }
 .sample pre, .codeblock { background:#0f172a; color:#e2e8f0; padding:10px 12px; border-radius:8px; font-size:13px; overflow:auto; margin:6px 0 0; }
 .code-label { margin:8px 0 4px; }

@@ -4,21 +4,21 @@ A self-contained, static website (no server, no build step, no framework) that r
 
 ## What the candidate gets
 
-* **8 question papers** – Paper A and Paper B (jumbled) for each of C, C++, Python and Java.
-* **Part 1:** 15 multiple-choice questions on the core concepts of that language, 2 marks each = **30 marks**.
+* **8 question papers** – Paper A and Paper B (different programming questions) for each of C, C++, Python and Java.
+* **Part 1:** 25 multiple-choice questions, 2 marks each = **50 marks**. They are drawn **at random for every candidate** from a pool of 63–68 questions per language: 10 on the **primary concepts of the language and data structures** (stacks, queues, linked lists, trees, hashing, sorting/searching, complexity, OOP basics, the language's standard collections) + 3 easy + 7 medium + 5 hard. The mix is set by `mcqMix` in `config.js`, and the question order and options are shuffled. Most medium and hard questions are "what is the output?" questions whose answers were verified by compiling and running the code. Every result shows a *Question set ID* and the difficulty level of each question.
 * **Part 2:** 4 programming questions (taken from the Technical Interview Questionnaire), to be written **in the paper's language**, 5 marks each = **20 marks**.
-* **Total 50 marks. Pass mark 80 %.** Time limit 60 minutes (configurable).
+* **Total 70 marks. Pass mark 80 % (56 marks).** Time limit 60 minutes (configurable).
 
 ## How marking works
 
 | Part | Method |
 |---|---|
 | MCQ | Auto-marked, 2 marks per correct answer. |
-| Programming | The candidate's code is compiled and run **in the paper's language** (C / C++ / Python / Java) against hidden test cases using the free public [Piston](https://github.com/engineer-man/piston) code-execution service. Marks = share of test cases passed, scaled 1–5 (all passed = 5, attempted but nothing passed = 1, blank = 0, code written in a different language = 1). If the execution service cannot be reached, a language-specific rubric check is used instead (structure, required constructs, expected output text) so the test can always be graded. |
+| Programming | The candidate's code is compiled and run **in the paper's language** (C / C++ / Python / Java) against hidden test cases using the free public [Piston](https://github.com/engineer-man/piston) code-execution service. Each question has 6–9 hidden test cases. Marks = share of test cases passed, scaled to 5 (all passed = 5, partially correct = 1–4 in proportion, compiles but nothing passed = 1, does not compile = 1–2, blank = 0, code written in a different language = 1). A crash on one test case fails only that test. The report shows the first failing test (input, expected output and the candidate's output). If the execution service cannot be reached, a language-specific rubric check is used instead (structure, required constructs, expected output text) so the test can always be graded. |
 
 After submission the site:
 
-1. Builds a **PDF report** with every question, the candidate's answer, the correct answer, marks per question, total out of 50, percentage and PASS/FAIL.
+1. Builds a **PDF report** with every question, the candidate's answer, the correct answer, marks per question, total out of 70, percentage and PASS/FAIL.
 2. **Emails** the report to the organizer (`vinod@simpliigence.com`) via EmailJS.
 3. Shows the candidate a "submitted" screen only. The organizer can open the full result on that screen with the **organizer passcode** (or from `index.html?organizer=1` on the same device), download the PDF, print it or re-send the email.
 
@@ -92,7 +92,7 @@ Edit `js/config.js` → `organizerPasscode`. Change it from the default before s
 index.html        page structure (single page app)
 css/style.css     styling (responsive, printable)
 js/config.js      organizer settings – the only file you need to edit
-js/questions.js   MCQ banks (15 × 4 languages), coding pool with hidden tests, 8 paper definitions
+js/questions.js   MCQ pools (63–68 per language, tagged core/easy/medium/hard), coding pool with hidden tests, 8 paper definitions
 js/app.js         test flow, timer, grading, PDF, email, organizer view
 js/minipdf.js     tiny built-in PDF writer (no external library)
 ```
